@@ -1,0 +1,6 @@
+customer_id;name;email;created_at;status;empty_column
+1;"  Anna Kowalska  ";anna@example.com;31.01.2026;Active;
+1;"  Anna Kowalska  ";anna@example.com;31.01.2026;Active;
+2;"Jan   Nowak";jan example.com;2026/02/01;;
+3;" Maria Wiśniewska ";"maria@example.com";not a date;INACTIVE;
+;;;;;

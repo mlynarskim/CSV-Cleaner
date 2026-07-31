@@ -1,0 +1,3 @@
+customer_id,name,email,created_at,status
+1,Anna Kowalska,anna@example.com,2026.01.31,active
+2,Jan Nowak,jan@example.com,2026.02.01,active

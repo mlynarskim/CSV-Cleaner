@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "csv-cleaner"
+version = "1.1.0"
+description = "Local desktop application for cleaning CSV and XLSX files"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0,<3.0",
+    "openpyxl>=3.1,<4.0",
+    "chardet>=5.0,<6.0",
+    "tkinterdnd2>=0.4,<1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9.0", "pyinstaller>=6.0,<7.0"]
+
+[project.scripts]
+csv-cleaner = "csv_cleaner.app:main"
+
+[tool.setuptools.packages.find]
+include = ["csv_cleaner*"]
+exclude = ["sample_data*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
