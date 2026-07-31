@@ -70,7 +70,7 @@ Przykładowy plik do szybkiego sprawdzenia znajduje się w `sample_data/dirty_sa
 
 ## Tworzenie aplikacji na macOS po pobraniu kodu
 
-Wymagany jest macOS oraz Python 3.11 lub nowszy. Pobierz kod przez przycisk **Code**, wybierz **Download ZIP** i rozpakuj archiwum. Następnie otwórz Terminal w katalogu projektu i wykonaj:
+Wymagany jest macOS, Python 3.11 lub nowszy oraz Tk 8.6.13 lub nowszy. Skrypt automatycznie wybiera najnowsze zgodne środowisko znalezione na komputerze. Pobierz kod przez przycisk **Code**, wybierz **Download ZIP** i rozpakuj archiwum. Następnie otwórz Terminal w katalogu projektu i wykonaj:
 
 ```bash
 chmod +x scripts/build_macos.sh
@@ -98,6 +98,12 @@ Testy zapisano również z użyciem standardowej biblioteki `unittest`, dlatego 
 python -m unittest discover -v
 ```
 
+Na macOS można dodatkowo uruchomić automatyczną kontrolę interfejsu. Test otwiera aplikację, przechodzi przez wszystkie etapy, naciska przyciski, sprawdza przewijanie, zapis i dynamiczne opcje CSV oraz Excel:
+
+```bash
+python scripts/test_ui_macos.py
+```
+
 ## Automatyczne publikowanie przez GitHub
 
 Plik `.github/workflows/build.yml` działa analogicznie do automatyzacji w projekcie Photo Tools. Każdy znacznik wersji zaczynający się literą `v` uruchamia testy i buduje dwa pakiety:
@@ -110,8 +116,8 @@ Po ukończeniu budowania GitHub tworzy wydanie w sekcji **Releases** i dołącza
 Przykład utworzenia wydania:
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 Automatyzację można również uruchomić ręcznie w karcie **Actions**. Ręczne uruchomienie tworzy pliki w sekcji artefaktów danego zadania, ale nie publikuje nowego wydania.

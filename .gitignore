@@ -10,6 +10,10 @@ htmlcov/
 .venv-build/
 build/
 dist/
+sample_data/*_cleaned.csv
+sample_data/*_cleaned.xlsx
+sample_data/*_cleaned_report.json
+sample_data/*_cleaned_report.txt
 *.spec.bak
 .DS_Store
 .idea/

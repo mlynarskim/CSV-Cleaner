@@ -51,8 +51,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "CSV Cleaner",
         "CFBundleName": "CSV Cleaner",
-        "CFBundleShortVersionString": "1.1.0",
-        "CFBundleVersion": "1.1.0",
+        "CFBundleShortVersionString": "1.1.1",
+        "CFBundleVersion": "1.1.1",
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": True,
     },
