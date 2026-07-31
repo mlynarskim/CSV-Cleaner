@@ -1,49 +1,50 @@
 # CSV Cleaner
 
-CSV Cleaner to lokalna aplikacja desktopowa do analizy, czyszczenia i standaryzowania plików CSV oraz XLSX. Dane pozostają na komputerze użytkownika, a plik źródłowy jest chroniony przed przypadkowym nadpisaniem.
+CSV Cleaner is a local desktop application for analyzing, cleaning, and standardizing CSV and XLSX files. Your data stays on your computer, and the source file is protected against accidental overwriting.
 
-## Najważniejsze możliwości
+## Key features
 
-* automatyczne wykrywanie kodowania i separatora CSV
-* wybór pliku przez okno systemowe albo przeciągnięcie go do aplikacji
-* wybór arkusza w skoroszycie XLSX
-* podgląd pierwszych 100 rekordów
-* wykrywanie pustych wierszy i kolumn, duplikatów, braków oraz zbędnych odstępów
-* wykrywanie potencjalnych kolumn dat i adresów poczty
-* czyszczenie odstępów i standaryzowanie nazw kolumn
-* usuwanie duplikatów według wszystkich albo wybranych kolumn
-* uzupełnianie braków tekstem, zerem, średnią, medianą albo dominantą
-* standaryzowanie dat i wielkości liter
-* podgląd maksymalnie 500 przykładowych zmian
-* bezpieczny zapis CSV lub XLSX przez plik tymczasowy
-* raport TXT i JSON tworzony przy każdym zapisie
-* lokalny dziennik błędów w katalogu `.csv_cleaner` użytkownika
+* automatic CSV encoding and separator detection
+* file selection through the system dialog or drag and drop
+* sheet selection for XLSX workbooks
+* preview of the first 100 records
+* detection of empty rows and columns, duplicates, missing values, and unnecessary whitespace
+* detection of potential date and email columns
+* whitespace cleanup and column name standardization
+* duplicate removal based on all columns or a selected subset
+* missing value replacement with text, zero, mean, median, or mode
+* date and letter case standardization
+* preview of up to 500 example changes
+* safe CSV or XLSX export through a temporary file
+* TXT and JSON reports created with every export
+* local error log stored in the user `.csv_cleaner` directory
+* English and Polish interface with an instant EN and PL language switch
 
-## Wymagania
+## Requirements
 
-* Python 3.11 lub nowszy
-* Tkinter dostępny w instalacji Pythona
+* Python 3.11 or newer
+* Tkinter available in the Python installation
 
-## Pobieranie gotowej aplikacji na macOS
+## Downloading the ready to use macOS application
 
-1. Otwórz stronę repozytorium na GitHub.
-2. Przejdź do sekcji **Releases** po prawej stronie.
-3. Pobierz plik odpowiedni dla swojego komputera:
+1. Open the repository page on GitHub.
+2. Go to the **Releases** section on the right.
+3. Download the archive that matches your Mac:
 
-| Procesor komputera | Plik |
+| Mac processor | File |
 |---|---|
-| Apple Silicon, czyli M1, M2, M3, M4 lub nowszy | `CSV-Cleaner-macOS-arm64.zip` |
+| Apple Silicon, including M1, M2, M3, M4, and newer | `CSV-Cleaner-macOS-arm64.zip` |
 | Intel | `CSV-Cleaner-macOS-x86_64.zip` |
 
-4. Otwórz pobrane archiwum ZIP.
-5. Przenieś `CSV Cleaner.app` do katalogu `Applications`.
-6. Przy pierwszym uruchomieniu kliknij aplikację prawym przyciskiem i wybierz **Otwórz**.
+4. Open the downloaded ZIP archive.
+5. Move `CSV Cleaner.app` to the `Applications` folder.
+6. On the first launch, right click the application and choose **Open**.
 
-Jeżeli macOS nadal blokuje aplikację, otwórz **Ustawienia systemowe**, następnie **Prywatność i ochrona** i wybierz **Otwórz mimo to**.
+If macOS still blocks the application, open **System Settings**, go to **Privacy & Security**, and choose **Open Anyway**.
 
-Pakiety publikowane automatycznie przez GitHub nie są podpisane certyfikatem Apple. System może więc pokazać ostrzeżenie przy pierwszym uruchomieniu.
+Packages published automatically by GitHub are not signed with an Apple Developer certificate. macOS may therefore display a warning on the first launch.
 
-## Instalacja i uruchomienie z kodu źródłowego
+## Installing and running from source
 
 ```bash
 python3 -m venv .venv
@@ -51,91 +52,93 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-W systemie Windows aktywacja środowiska wygląda następująco:
+On Windows, activate the environment with:
 
 ```powershell
 .venv\Scripts\activate
 python -m pip install -r requirements.txt
 ```
 
-## Uruchomienie
+## Running the application
 
 ```bash
 python run.py
 ```
 
-Po uruchomieniu wybierz plik CSV albo XLSX przyciskiem lub przeciągnij go do oznaczonego pola. Następnie sprawdź podgląd, rozpocznij analizę, zaznacz operacje, obejrzyj planowane zmiany i zapisz nową kopię.
+Choose a CSV or XLSX file with the button or drag it into the marked area. Review the data, start the analysis, select cleaning operations, inspect the planned changes, and save a new copy.
 
-Przykładowy plik do szybkiego sprawdzenia znajduje się w `sample_data/dirty_sample.csv`.
+Use the EN and PL controls in the top right corner to switch the entire interface between English and Polish. The current data, selected cleaning options, and active step remain unchanged.
 
-## Tworzenie aplikacji na macOS po pobraniu kodu
+A sample file for a quick check is available at `sample_data/dirty_sample.csv`.
 
-Wymagany jest macOS, Python 3.11 lub nowszy oraz Tk 8.6.13 lub nowszy. Skrypt automatycznie wybiera najnowsze zgodne środowisko znalezione na komputerze. Pobierz kod przez przycisk **Code**, wybierz **Download ZIP** i rozpakuj archiwum. Następnie otwórz Terminal w katalogu projektu i wykonaj:
+## Building the macOS application after downloading the source
+
+The build requires macOS, Python 3.11 or newer, and Tk 8.6.13 or newer. The script automatically selects the newest compatible environment found on the computer. Download the source with **Code**, choose **Download ZIP**, extract it, open Terminal in the project directory, and run:
 
 ```bash
 chmod +x scripts/build_macos.sh
 ./scripts/build_macos.sh
 ```
 
-Skrypt samodzielnie tworzy środowisko, instaluje zależności, buduje aplikację i przygotowuje dwa pliki:
+The script creates an isolated build environment, installs dependencies, builds the application, and prepares two files:
 
 ```text
 dist/CSV Cleaner.app
 dist/CSV-Cleaner-macOS-arm64.zip
 ```
 
-Końcowa nazwa archiwum zależy od procesora komputera i może kończyć się również na `x86_64.zip`.
+The archive name depends on the computer processor and may also end with `x86_64.zip`.
 
-## Testy
+## Tests
 
 ```bash
 python -m pytest
 ```
 
-Testy zapisano również z użyciem standardowej biblioteki `unittest`, dlatego podstawową weryfikację można wykonać bez instalacji Pytest:
+The tests use the standard `unittest` library as well, so the basic verification can run without Pytest:
 
 ```bash
 python -m unittest discover -v
 ```
 
-Na macOS można dodatkowo uruchomić automatyczną kontrolę interfejsu. Test otwiera aplikację, przechodzi przez wszystkie etapy, naciska przyciski, sprawdza przewijanie, zapis i dynamiczne opcje CSV oraz Excel:
+On macOS, run the automated interface test to verify both languages, all five steps, buttons, scrolling, preview, export, and dynamic CSV and Excel options:
 
 ```bash
 python scripts/test_ui_macos.py
 ```
 
-## Automatyczne publikowanie przez GitHub
+## Automatic GitHub releases
 
-Plik `.github/workflows/build.yml` działa analogicznie do automatyzacji w projekcie Photo Tools. Każdy znacznik wersji zaczynający się literą `v` uruchamia testy i buduje dwa pakiety:
+The `.github/workflows/build.yml` workflow follows the same release approach as Photo Tools. Every version tag beginning with `v` runs the tests and builds two packages:
 
-* wersję dla Apple Silicon
-* wersję dla komputerów Intel
+* Apple Silicon
+* Intel
 
-Po ukończeniu budowania GitHub tworzy wydanie w sekcji **Releases** i dołącza oba archiwa.
+After the build completes, GitHub creates a release and attaches both archives.
 
-Przykład utworzenia wydania:
+Example release:
 
 ```bash
-git tag v1.1.1
-git push origin v1.1.1
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-Automatyzację można również uruchomić ręcznie w karcie **Actions**. Ręczne uruchomienie tworzy pliki w sekcji artefaktów danego zadania, ale nie publikuje nowego wydania.
+The workflow can also be started manually from the **Actions** tab. A manual run stores the packages as workflow artifacts without publishing a new release.
 
-## Ręczne budowanie przez PyInstaller
+## Manual PyInstaller build
 
-Po instalacji zależności uruchom:
+After installing the dependencies, run:
 
 ```bash
 pyinstaller csv_cleaner_macos.spec
 ```
 
-Gotowy pakiet `CSV Cleaner.app` pojawi się w katalogu `dist`.
+The completed `CSV Cleaner.app` package will be available in the `dist` directory.
 
-## Bezpieczeństwo danych
+## Data safety
 
-Aplikacja wykonuje operacje na kopii ramki danych w pamięci. Eksport tworzy najpierw plik tymczasowy i dopiero po poprawnym zapisie zastępuje nim plik docelowy. Nadpisanie istniejącego pliku wymaga potwierdzenia w interfejsie.
+The application performs all operations on an in memory copy of the data frame. Export first creates a temporary file and replaces the target only after a successful write. Overwriting an existing file requires confirmation in the interface.
 
-## Struktura
+## Project structure
 
-Logika odczytu, analizy, czyszczenia, walidacji, eksportu i raportowania znajduje się w `csv_cleaner/core`. Interfejs Tkinter znajduje się w `csv_cleaner/ui`, a modele konfiguracji oraz wyników w `csv_cleaner/models`.
+File loading, analysis, cleaning, validation, export, and reporting logic is located in `csv_cleaner/core`. The Tkinter interface is located in `csv_cleaner/ui`, while configuration and result models are stored in `csv_cleaner/models`.

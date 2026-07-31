@@ -28,6 +28,13 @@ from csv_cleaner.core.cleaner import clean_data
 from csv_cleaner.core.exporter import ExportError, export_data
 from csv_cleaner.core.file_loader import FileLoadError, LoadedFile, load_file
 from csv_cleaner.core.report_generator import build_report, save_reports
+from csv_cleaner.i18n import (
+    DEFAULT_LANGUAGE,
+    LocalizedError,
+    LocalizedMessage,
+    LocalizedValueError,
+    translate,
+)
 from csv_cleaner.models.analysis_result import AnalysisResult
 from csv_cleaner.models.cleaning_config import CleaningConfig, DuplicateConfig
 from csv_cleaner.models.operation_result import OperationResult
@@ -35,11 +42,49 @@ from csv_cleaner.utils.file_helpers import human_file_size
 
 
 LOGGER = logging.getLogger(__name__)
-SEPARATOR_LABELS = {
-    "Przecinek": ",",
-    "Średnik": ";",
-    "Tabulator": "\t",
-    "Kreska pionowa": "|",
+SEPARATORS = {
+    "comma": ",",
+    "semicolon": ";",
+    "tab": "\t",
+    "pipe": "|",
+}
+CHOICE_GROUPS = {
+    "separator": (
+        ("comma", "separator.comma"),
+        ("semicolon", "separator.semicolon"),
+        ("tab", "separator.tab"),
+        ("pipe", "separator.pipe"),
+    ),
+    "duplicate_keep": (
+        ("first", "choice.keep_first"),
+        ("last", "choice.keep_last"),
+        ("remove_all", "choice.remove_all_duplicates"),
+        ("mark", "choice.mark_only"),
+    ),
+    "column_case": (
+        ("lower", "choice.lowercase"),
+        ("upper", "choice.uppercase"),
+    ),
+    "text_case": (
+        ("none", "choice.no_change"),
+        ("lower", "choice.lowercase"),
+        ("upper", "choice.uppercase"),
+        ("capitalize", "choice.capitalize"),
+        ("title", "choice.title_case"),
+    ),
+    "email_action": (
+        ("keep", "choice.keep_report"),
+        ("empty", "choice.replace_empty"),
+    ),
+    "missing_strategy": (
+        ("keep", "choice.keep_missing"),
+        ("text", "choice.custom_text"),
+        ("zero", "choice.zero"),
+        ("mean", "choice.mean"),
+        ("median", "choice.median"),
+        ("mode", "choice.mode"),
+        ("drop", "choice.drop_rows"),
+    ),
 }
 
 
@@ -134,8 +179,18 @@ class CSVTree(ttk.Frame):
             values = ["∅" if pd.isna(value) else str(value) for value in row]
             self.tree.insert("", "end", values=values)
 
-    def show_changes(self, changes: list[Any]) -> None:
-        columns = ["Wiersz", "Kolumna", "Przed", "Po", "Operacja"]
+    def show_changes(
+        self,
+        changes: list[Any],
+        translator: Callable[[str], str],
+    ) -> None:
+        columns = [
+            translator("change.row"),
+            translator("change.column"),
+            translator("change.before"),
+            translator("change.after"),
+            translator("change.operation"),
+        ]
         self.tree.delete(*self.tree.get_children())
         self.tree.configure(columns=columns)
         widths = [80, 150, 180, 180, 220]
@@ -147,11 +202,11 @@ class CSVTree(ttk.Frame):
                 "",
                 "end",
                 values=(
-                    change.row,
+                    translator(change.row_key) if change.row_key else change.row,
                     change.column,
-                    change.before,
-                    change.after,
-                    change.operation,
+                    translator(change.before_key) if change.before_key else change.before,
+                    translator(change.after_key) if change.after_key else change.after,
+                    translator(change.operation),
                 ),
             )
 
@@ -169,6 +224,13 @@ class MainWindow(DragDropWindow):
         self.last_reports: tuple[Path, Path] | None = None
         self.unsaved_changes = False
         self.is_busy = False
+        self.language = DEFAULT_LANGUAGE
+        self.language_var = tk.StringVar(value=self.language)
+        self.current_step = "file"
+        self._translated_widgets: list[tuple[tk.Misc, str]] = []
+        self._choice_widgets: list[
+            tuple[ttk.Combobox, tk.StringVar, str]
+        ] = []
         self._busy_button_states: dict[ttk.Button, bool] = {}
         self._task_queue: queue.Queue[
             tuple[str, Any, Callable[[Any], None] | None]
@@ -185,6 +247,117 @@ class MainWindow(DragDropWindow):
         self.show_step("file")
         self.after(25, self._poll_task_queue)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _t(self, key: str, **values: Any) -> str:
+        return translate(self.language, key, **values)
+
+    def _label(self, parent: tk.Misc, key: str, **options: Any) -> ttk.Label:
+        widget = ttk.Label(parent, text=self._t(key), **options)
+        self._translated_widgets.append((widget, key))
+        return widget
+
+    def _button(self, parent: tk.Misc, key: str, **options: Any) -> ttk.Button:
+        widget = ttk.Button(parent, text=self._t(key), **options)
+        self._translated_widgets.append((widget, key))
+        return widget
+
+    def _checkbutton(
+        self,
+        parent: tk.Misc,
+        key: str,
+        **options: Any,
+    ) -> ttk.Checkbutton:
+        widget = ttk.Checkbutton(parent, text=self._t(key), **options)
+        self._translated_widgets.append((widget, key))
+        return widget
+
+    def _label_frame(
+        self,
+        parent: tk.Misc,
+        key: str,
+        **options: Any,
+    ) -> ttk.LabelFrame:
+        widget = ttk.LabelFrame(parent, text=self._t(key), **options)
+        self._translated_widgets.append((widget, key))
+        return widget
+
+    def _choice_values(self, group: str) -> tuple[str, ...]:
+        return tuple(self._t(key) for _, key in CHOICE_GROUPS[group])
+
+    def _choice_label(self, group: str, code: str) -> str:
+        key = next(
+            key
+            for candidate, key in CHOICE_GROUPS[group]
+            if candidate == code
+        )
+        return self._t(key)
+
+    @staticmethod
+    def _choice_code_for_language(
+        group: str,
+        value: str,
+        language: str,
+    ) -> str:
+        for code, key in CHOICE_GROUPS[group]:
+            if translate(language, key) == value:
+                return code
+        return CHOICE_GROUPS[group][0][0]
+
+    def _choice_code(self, group: str, value: str) -> str:
+        return self._choice_code_for_language(group, value, self.language)
+
+    def _choice_combo(
+        self,
+        parent: tk.Misc,
+        variable: tk.StringVar,
+        group: str,
+        default: str,
+        **options: Any,
+    ) -> ttk.Combobox:
+        variable.set(self._choice_label(group, default))
+        widget = ttk.Combobox(
+            parent,
+            textvariable=variable,
+            values=self._choice_values(group),
+            **options,
+        )
+        self._choice_widgets.append((widget, variable, group))
+        return widget
+
+    def _change_language(self) -> None:
+        selected = self.language_var.get()
+        if selected == self.language or selected not in {"en", "pl"}:
+            return
+        previous = self.language
+        replacement_uses_default = self.missing_replacement_var.get() in {
+            translate(language, "choice.missing_text")
+            for language in ("en", "pl")
+        }
+        sheet_uses_default = self.output_sheet_var.get() in {
+            translate(language, "choice.cleaned_sheet")
+            for language in ("en", "pl")
+        }
+        choice_codes = [
+            self._choice_code_for_language(group, variable.get(), previous)
+            for _, variable, group in self._choice_widgets
+        ]
+        self.language = selected
+        for widget, key in self._translated_widgets:
+            if widget.winfo_exists():
+                widget.configure(text=self._t(key))
+        for (widget, variable, group), code in zip(
+            self._choice_widgets,
+            choice_codes,
+        ):
+            if widget.winfo_exists():
+                widget.configure(values=self._choice_values(group))
+                variable.set(self._choice_label(group, code))
+        if replacement_uses_default:
+            self.missing_replacement_var.set(self._t("choice.missing_text"))
+        if sheet_uses_default:
+            self.output_sheet_var.set(self._t("choice.cleaned_sheet"))
+        self.show_step(self.current_step)
+        self._refresh_dynamic_text()
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -206,6 +379,23 @@ class MainWindow(DragDropWindow):
         header = ttk.Frame(self, padding=(22, 14))
         header.pack(fill="x")
         ttk.Label(header, text="CSV Cleaner", style="Heading.TLabel").pack(side="left")
+        language_switch = ttk.Frame(header)
+        language_switch.pack(side="right", padx=(22, 0))
+        self._label(language_switch, "language").pack(side="left", padx=(0, 6))
+        ttk.Radiobutton(
+            language_switch,
+            text="EN",
+            value="en",
+            variable=self.language_var,
+            command=self._change_language,
+        ).pack(side="left")
+        ttk.Radiobutton(
+            language_switch,
+            text="PL",
+            value="pl",
+            variable=self.language_var,
+            command=self._change_language,
+        ).pack(side="left")
         self.step_label = ttk.Label(header, text="")
         self.step_label.pack(side="right")
         ttk.Separator(self).pack(fill="x")
@@ -234,50 +424,44 @@ class MainWindow(DragDropWindow):
         return frame
 
     def show_step(self, key: str) -> None:
-        labels = {
-            "file": "Etap 1 z 5  •  Wybór pliku",
-            "data": "Etap 2 z 5  •  Dane",
-            "analysis": "Etap 3 z 5  •  Problemy",
-            "preview": "Etap 4 z 5  •  Podgląd zmian",
-            "export": "Etap 5 z 5  •  Zapis",
-        }
         for frame in self.step_frames.values():
             frame.pack_forget()
         self.step_frames[key].pack(fill="both", expand=True)
-        self.step_label.configure(text=labels[key])
+        self.current_step = key
+        self.step_label.configure(text=self._t(f"step.{key}"))
 
     def _build_file_step(self) -> None:
         frame = self._new_step("file")
         center = ttk.Frame(frame)
         center.place(relx=0.5, rely=0.45, anchor="center")
-        ttk.Label(center, text="Uporządkuj dane przed kolejnym raportem", style="Title.TLabel").pack(pady=(0, 10))
-        ttk.Label(
+        self._label(center, "file.title", style="Title.TLabel").pack(
+            pady=(0, 10)
+        )
+        self._label(
             center,
-            text="Wybierz plik CSV lub XLSX. Analiza i czyszczenie odbywają się wyłącznie na tym komputerze.",
+            "file.description",
             style="Muted.TLabel",
             wraplength=700,
             justify="center",
         ).pack(pady=(0, 28))
         self.drop_zone = ttk.Frame(center, style="Card.TFrame", padding=38)
         self.drop_zone.pack(fill="x")
-        self.drop_title = ttk.Label(
+        self.drop_title = self._label(
             self.drop_zone,
-            text="Przeciągnij tutaj plik CSV lub XLSX",
+            "file.drop_title",
             style="Heading.TLabel",
         )
         self.drop_title.pack(pady=(0, 10))
-        self.drop_hint_var = tk.StringVar(
-            value="Pliki do 100 MB. Oryginał nie zostanie zmieniony."
-        )
+        self.drop_hint_var = tk.StringVar(value=self._t("file.drop_hint"))
         self.drop_hint = ttk.Label(
             self.drop_zone,
             textvariable=self.drop_hint_var,
             style="Muted.TLabel",
         )
         self.drop_hint.pack(pady=(0, 18))
-        self.drop_button = ttk.Button(
+        self.drop_button = self._button(
             self.drop_zone,
-            text="Wybierz plik",
+            "file.choose",
             style="Accent.TButton",
             command=self._choose_file,
         )
@@ -286,9 +470,7 @@ class MainWindow(DragDropWindow):
 
     def _configure_file_drop(self) -> None:
         if not DRAG_DROP_AVAILABLE or DND_FILES is None:
-            self.drop_hint_var.set(
-                "Przeciąganie wymaga biblioteki tkinterdnd2. Nadal możesz wybrać plik przyciskiem."
-            )
+            self.drop_hint_var.set(self._t("file.drop_unavailable"))
             return
         for widget in (self.drop_zone, self.drop_title, self.drop_hint):
             widget.drop_target_register(DND_FILES)
@@ -298,7 +480,7 @@ class MainWindow(DragDropWindow):
 
     def _on_drop_enter(self, event: Any) -> str:
         self.drop_zone.configure(style="DropActive.TFrame")
-        self.drop_hint_var.set("Upuść plik, aby rozpocząć wczytywanie.")
+        self.drop_hint_var.set(self._t("file.drop_active"))
         return str(event.action)
 
     def _on_drop_leave(self, event: Any) -> str:
@@ -311,7 +493,7 @@ class MainWindow(DragDropWindow):
         if len(paths) != 1:
             messagebox.showwarning(
                 "CSV Cleaner",
-                "Upuść dokładnie jeden plik CSV albo XLSX.",
+                self._t("file.drop_single"),
                 parent=self,
             )
             return str(event.action)
@@ -320,23 +502,23 @@ class MainWindow(DragDropWindow):
 
     def _reset_drop_zone(self) -> None:
         self.drop_zone.configure(style="Card.TFrame")
-        self.drop_hint_var.set("Pliki do 100 MB. Oryginał nie zostanie zmieniony.")
+        self.drop_hint_var.set(self._t("file.drop_hint"))
 
     def _build_data_step(self) -> None:
         frame = self._new_step("data")
         top = ttk.Frame(frame)
         top.pack(fill="x", pady=(0, 12))
-        ttk.Label(top, text="Podgląd danych", style="Title.TLabel").pack(side="left")
-        ttk.Button(
+        self._label(top, "data.title", style="Title.TLabel").pack(side="left")
+        self._button(
             top,
-            text="Wybierz inny plik",
+            "data.choose_another",
             command=self._choose_file,
         ).pack(side="right")
         self.file_info = ttk.Label(frame, text="", style="Muted.TLabel")
         self.file_info.pack(fill="x", pady=(0, 10))
         controls = ttk.Frame(frame)
         controls.pack(fill="x", pady=(0, 12))
-        self.encoding_label = ttk.Label(controls, text="Kodowanie")
+        self.encoding_label = self._label(controls, "data.encoding")
         self.encoding_label.grid(row=0, column=0, sticky="w")
         self.encoding_var = tk.StringVar(value="utf-8")
         self.encoding_combo = ttk.Combobox(
@@ -347,31 +529,32 @@ class MainWindow(DragDropWindow):
             state="readonly",
         )
         self.encoding_combo.grid(row=1, column=0, padx=(0, 12))
-        self.separator_label = ttk.Label(controls, text="Separator")
+        self.separator_label = self._label(controls, "data.separator")
         self.separator_label.grid(row=0, column=1, sticky="w")
-        self.separator_var = tk.StringVar(value="Przecinek")
-        self.separator_combo = ttk.Combobox(
+        self.separator_var = tk.StringVar()
+        self.separator_combo = self._choice_combo(
             controls,
-            textvariable=self.separator_var,
-            values=tuple(SEPARATOR_LABELS),
+            self.separator_var,
+            "separator",
+            "comma",
             width=18,
             state="readonly",
         )
         self.separator_combo.grid(row=1, column=1, padx=(0, 12))
-        self.sheet_label = ttk.Label(controls, text="Arkusz Excel")
+        self.sheet_label = self._label(controls, "data.sheet")
         self.sheet_label.grid(row=0, column=2, sticky="w")
         self.sheet_var = tk.StringVar()
         self.sheet_combo = ttk.Combobox(controls, textvariable=self.sheet_var, width=24, state="readonly")
         self.sheet_combo.grid(row=1, column=2, padx=(0, 12))
-        self.reload_button = ttk.Button(
+        self.reload_button = self._button(
             controls,
-            text="Zastosuj ustawienia",
+            "data.apply",
             command=self._reload_with_options,
         )
         self.reload_button.grid(row=1, column=3)
         self.data_options_hint = ttk.Label(
             controls,
-            text="Po zmianie kodowania lub separatora wybierz Zastosuj ustawienia.",
+            text=self._t("data.csv_hint"),
             style="Muted.TLabel",
         )
         self.data_options_hint.grid(
@@ -385,9 +568,9 @@ class MainWindow(DragDropWindow):
         self.data_tree.pack(fill="both", expand=True)
         actions = ttk.Frame(frame)
         actions.pack(fill="x", pady=(14, 0))
-        self.analyze_button = ttk.Button(
+        self.analyze_button = self._button(
             actions,
-            text="Rozpocznij analizę",
+            "data.start_analysis",
             style="Accent.TButton",
             command=self._analyze,
         )
@@ -397,8 +580,12 @@ class MainWindow(DragDropWindow):
         frame = self._new_step("analysis")
         top = ttk.Frame(frame)
         top.pack(fill="x")
-        ttk.Label(top, text="Wykryte problemy i operacje", style="Title.TLabel").pack(side="left")
-        ttk.Button(top, text="Wróć do danych", command=lambda: self.show_step("data")).pack(side="right")
+        self._label(top, "analysis.title", style="Title.TLabel").pack(side="left")
+        self._button(
+            top,
+            "analysis.back",
+            command=lambda: self.show_step("data"),
+        ).pack(side="right")
         self.analysis_summary = ttk.Label(frame, text="", style="Muted.TLabel")
         self.analysis_summary.pack(fill="x", pady=(6, 10))
         self.analysis_scroll = ScrollableFrame(frame)
@@ -417,21 +604,31 @@ class MainWindow(DragDropWindow):
 
         self.issue_labels: dict[str, ttk.Label] = {}
         checks = [
-            ("empty_rows", "Usuń całkowicie puste wiersze", self.remove_empty_rows_var),
-            ("empty_columns", "Usuń całkowicie puste kolumny", self.remove_empty_columns_var),
-            ("whitespace", "Usuń zbędne odstępy", self.trim_var),
-            ("duplicates", "Obsłuż duplikaty", self.duplicates_var),
-            ("missing", "Obsłuż brakujące wartości", self.missing_var),
-            ("invalid_emails", "Waliduj adresy poczty", self.email_var),
+            ("empty_rows", "analysis.remove_empty_rows", self.remove_empty_rows_var),
+            ("empty_columns", "analysis.remove_empty_columns", self.remove_empty_columns_var),
+            ("whitespace", "analysis.trim", self.trim_var),
+            ("duplicates", "analysis.duplicates", self.duplicates_var),
+            ("missing", "analysis.missing", self.missing_var),
+            ("invalid_emails", "analysis.email", self.email_var),
         ]
-        for row, (key, text, variable) in enumerate(checks):
-            ttk.Checkbutton(content, text=text, variable=variable).grid(row=row, column=0, sticky="w", pady=4)
+        for row, (key, text_key, variable) in enumerate(checks):
+            self._checkbutton(content, text_key, variable=variable).grid(
+                row=row,
+                column=0,
+                sticky="w",
+                pady=4,
+            )
             label = ttk.Label(content, text="", style="Muted.TLabel")
             label.grid(row=row, column=1, sticky="w", padx=18)
             self.issue_labels[key] = label
 
         row = len(checks)
-        ttk.Label(content, text="Przykładowe rekordy").grid(row=row, column=0, sticky="w", pady=(8, 2))
+        self._label(content, "analysis.examples").grid(
+            row=row,
+            column=0,
+            sticky="w",
+            pady=(8, 2),
+        )
         self.issue_example_var = tk.StringVar()
         self.issue_example_combo = ttk.Combobox(
             content,
@@ -445,27 +642,40 @@ class MainWindow(DragDropWindow):
         self.issue_examples_text = tk.Text(content, height=5, wrap="none", state="disabled")
         self.issue_examples_text.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         row += 1
-        ttk.Checkbutton(
+        self._checkbutton(
             content,
-            text="Scalaj wielokrotne odstępy wewnątrz tekstu",
+            "analysis.collapse_spaces",
             variable=self.collapse_var,
         ).grid(row=row, column=0, columnspan=2, sticky="w", padx=(24, 0))
         row += 1
         ttk.Separator(content).grid(row=row, column=0, columnspan=3, sticky="ew", pady=12)
         row += 1
 
-        ttk.Label(content, text="Duplikaty", style="Heading.TLabel").grid(row=row, column=0, sticky="w")
+        self._label(
+            content,
+            "analysis.duplicates_heading",
+            style="Heading.TLabel",
+        ).grid(row=row, column=0, sticky="w")
         row += 1
-        ttk.Label(content, text="Kolumny, rozdzielone przecinkami; puste pole oznacza wszystkie").grid(row=row, column=0, sticky="w")
+        self._label(content, "analysis.duplicate_columns").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
         self.duplicate_columns_var = tk.StringVar()
         ttk.Entry(content, textvariable=self.duplicate_columns_var, width=60).grid(row=row, column=1, sticky="ew", padx=12)
         row += 1
-        ttk.Label(content, text="Sposób obsługi").grid(row=row, column=0, sticky="w")
-        self.duplicate_keep_var = tk.StringVar(value="Zachowaj pierwszy")
-        ttk.Combobox(
+        self._label(content, "analysis.handling").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
+        self.duplicate_keep_var = tk.StringVar()
+        self._choice_combo(
             content,
-            textvariable=self.duplicate_keep_var,
-            values=("Zachowaj pierwszy", "Zachowaj ostatni", "Usuń wszystkie powtórzenia", "Tylko oznacz"),
+            self.duplicate_keep_var,
+            "duplicate_keep",
+            "first",
             state="readonly",
             width=28,
         ).grid(row=row, column=1, sticky="w", padx=12, pady=4)
@@ -473,38 +683,48 @@ class MainWindow(DragDropWindow):
         ttk.Separator(content).grid(row=row, column=0, columnspan=3, sticky="ew", pady=12)
         row += 1
 
-        ttk.Checkbutton(
+        self._checkbutton(
             content,
-            text="Standaryzuj nazwy kolumn",
+            "analysis.standardize_columns",
             variable=self.columns_var,
         ).grid(row=row, column=0, sticky="w")
-        self.column_case_var = tk.StringVar(value="małe litery")
-        ttk.Combobox(
+        self.column_case_var = tk.StringVar()
+        self._choice_combo(
             content,
-            textvariable=self.column_case_var,
-            values=("małe litery", "WIELKIE LITERY"),
+            self.column_case_var,
+            "column_case",
+            "lower",
             state="readonly",
             width=20,
         ).grid(row=row, column=1, sticky="w", padx=12)
         row += 1
         self.polish_var = tk.BooleanVar()
-        ttk.Checkbutton(
+        self._checkbutton(
             content,
-            text="Usuń polskie znaki z nazw kolumn",
+            "analysis.remove_polish",
             variable=self.polish_var,
         ).grid(row=row, column=0, columnspan=2, sticky="w", padx=(24, 0))
         row += 1
 
-        ttk.Label(content, text="Kolumny tekstowe do zmiany wielkości liter").grid(row=row, column=0, sticky="w")
+        self._label(content, "analysis.text_columns").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
         self.text_columns_var = tk.StringVar()
         ttk.Entry(content, textvariable=self.text_columns_var, width=60).grid(row=row, column=1, sticky="ew", padx=12)
         row += 1
-        ttk.Label(content, text="Wielkość liter").grid(row=row, column=0, sticky="w")
-        self.text_case_var = tk.StringVar(value="Bez zmian")
-        ttk.Combobox(
+        self._label(content, "analysis.case").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
+        self.text_case_var = tk.StringVar()
+        self._choice_combo(
             content,
-            textvariable=self.text_case_var,
-            values=("Bez zmian", "małe litery", "WIELKIE LITERY", "Pierwsza litera", "Każde Słowo"),
+            self.text_case_var,
+            "text_case",
+            "none",
             state="readonly",
             width=20,
         ).grid(row=row, column=1, sticky="w", padx=12)
@@ -512,11 +732,19 @@ class MainWindow(DragDropWindow):
         ttk.Separator(content).grid(row=row, column=0, columnspan=3, sticky="ew", pady=12)
         row += 1
 
-        ttk.Checkbutton(content, text="Standaryzuj daty", variable=self.dates_var).grid(row=row, column=0, sticky="w")
+        self._checkbutton(
+            content,
+            "analysis.standardize_dates",
+            variable=self.dates_var,
+        ).grid(row=row, column=0, sticky="w")
         self.date_columns_var = tk.StringVar()
         ttk.Entry(content, textvariable=self.date_columns_var, width=60).grid(row=row, column=1, sticky="ew", padx=12)
         row += 1
-        ttk.Label(content, text="Format daty").grid(row=row, column=0, sticky="w")
+        self._label(content, "analysis.date_format").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
         self.date_format_var = tk.StringVar(value="%Y.%m.%d")
         ttk.Combobox(
             content,
@@ -525,23 +753,36 @@ class MainWindow(DragDropWindow):
             width=22,
         ).grid(row=row, column=1, sticky="w", padx=12)
         row += 1
-        ttk.Label(content, text="Kolumny dat i tekstu podawaj po przecinku.", style="Muted.TLabel").grid(
+        self._label(
+            content,
+            "analysis.columns_hint",
+            style="Muted.TLabel",
+        ).grid(
             row=row, column=0, columnspan=2, sticky="w"
         )
         row += 1
         ttk.Separator(content).grid(row=row, column=0, columnspan=3, sticky="ew", pady=12)
         row += 1
 
-        ttk.Label(content, text="Kolumny z adresami poczty").grid(row=row, column=0, sticky="w")
+        self._label(content, "analysis.email_columns").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
         self.email_columns_var = tk.StringVar()
         ttk.Entry(content, textvariable=self.email_columns_var, width=60).grid(row=row, column=1, sticky="ew", padx=12)
         row += 1
-        ttk.Label(content, text="Nieprawidłowe adresy").grid(row=row, column=0, sticky="w")
-        self.email_action_var = tk.StringVar(value="Pozostaw i raportuj")
-        ttk.Combobox(
+        self._label(content, "analysis.invalid_emails").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
+        self.email_action_var = tk.StringVar()
+        self._choice_combo(
             content,
-            textvariable=self.email_action_var,
-            values=("Pozostaw i raportuj", "Zastąp pustą wartością"),
+            self.email_action_var,
+            "email_action",
+            "keep",
             state="readonly",
             width=28,
         ).grid(row=row, column=1, sticky="w", padx=12)
@@ -549,36 +790,43 @@ class MainWindow(DragDropWindow):
         ttk.Separator(content).grid(row=row, column=0, columnspan=3, sticky="ew", pady=12)
         row += 1
 
-        ttk.Label(content, text="Kolumny z brakami").grid(row=row, column=0, sticky="w")
+        self._label(content, "analysis.missing_columns").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
         self.missing_columns_var = tk.StringVar()
         ttk.Entry(content, textvariable=self.missing_columns_var, width=60).grid(row=row, column=1, sticky="ew", padx=12)
         row += 1
-        ttk.Label(content, text="Sposób uzupełnienia").grid(row=row, column=0, sticky="w")
-        self.missing_strategy_var = tk.StringVar(value="Pozostaw bez zmian")
-        ttk.Combobox(
+        self._label(content, "analysis.missing_strategy").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
+        self.missing_strategy_var = tk.StringVar()
+        self._choice_combo(
             content,
-            textvariable=self.missing_strategy_var,
-            values=(
-                "Pozostaw bez zmian",
-                "Wybrany tekst",
-                "Zero",
-                "Średnia",
-                "Mediana",
-                "Najczęstsza wartość",
-                "Usuń wiersze",
-            ),
+            self.missing_strategy_var,
+            "missing_strategy",
+            "keep",
             state="readonly",
             width=28,
         ).grid(row=row, column=1, sticky="w", padx=12)
         row += 1
-        ttk.Label(content, text="Tekst zastępczy").grid(row=row, column=0, sticky="w")
-        self.missing_replacement_var = tk.StringVar(value="brak")
+        self._label(content, "analysis.replacement").grid(
+            row=row,
+            column=0,
+            sticky="w",
+        )
+        self.missing_replacement_var = tk.StringVar(
+            value=self._t("choice.missing_text")
+        )
         ttk.Entry(content, textvariable=self.missing_replacement_var, width=30).grid(row=row, column=1, sticky="w", padx=12)
         content.columnconfigure(1, weight=1)
 
-        self.preview_button = ttk.Button(
+        self.preview_button = self._button(
             frame,
-            text="Przygotuj podgląd zmian",
+            "analysis.preview",
             style="Accent.TButton",
             command=self._preview_changes,
         )
@@ -588,8 +836,12 @@ class MainWindow(DragDropWindow):
         frame = self._new_step("preview")
         top = ttk.Frame(frame)
         top.pack(fill="x")
-        ttk.Label(top, text="Podgląd planowanych zmian", style="Title.TLabel").pack(side="left")
-        ttk.Button(top, text="Wróć do ustawień", command=lambda: self.show_step("analysis")).pack(side="right")
+        self._label(top, "preview.title", style="Title.TLabel").pack(side="left")
+        self._button(
+            top,
+            "preview.back",
+            command=lambda: self.show_step("analysis"),
+        ).pack(side="right")
         self.preview_summary = ttk.Label(frame, text="", style="Muted.TLabel")
         self.preview_summary.pack(fill="x", pady=(6, 12))
         self.change_tree = CSVTree(frame, height=18)
@@ -598,10 +850,14 @@ class MainWindow(DragDropWindow):
         self.warning_text.pack(fill="x", pady=(12, 0))
         actions = ttk.Frame(frame)
         actions.pack(fill="x", pady=(12, 0))
-        ttk.Button(actions, text="Cofnij zmiany", command=self._reset_changes).pack(side="left")
-        self.approve_button = ttk.Button(
+        self._button(
             actions,
-            text="Zatwierdź i przejdź do zapisu",
+            "preview.reset",
+            command=self._reset_changes,
+        ).pack(side="left")
+        self.approve_button = self._button(
+            actions,
+            "preview.approve",
             style="Accent.TButton",
             command=self._approve_changes,
         )
@@ -609,30 +865,34 @@ class MainWindow(DragDropWindow):
 
     def _build_export_step(self) -> None:
         frame = self._new_step("export")
-        ttk.Label(frame, text="Zapis poprawionej kopii", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
+        self._label(frame, "export.title", style="Title.TLabel").pack(anchor="w")
+        self._label(
             frame,
-            text="Oryginalny plik pozostanie bez zmian. Raport TXT i JSON zostanie zapisany obok wyniku.",
+            "export.description",
             style="Muted.TLabel",
         ).pack(anchor="w", pady=(6, 20))
         self.export_form = ttk.Frame(frame, padding=20, style="Card.TFrame")
         self.export_form.pack(fill="x")
-        ttk.Label(self.export_form, text="Plik wynikowy").grid(row=0, column=0, sticky="w")
+        self._label(self.export_form, "export.output").grid(
+            row=0,
+            column=0,
+            sticky="w",
+        )
         self.output_path_var = tk.StringVar()
         self.output_path_var.trace_add("write", self._on_output_path_changed)
         ttk.Entry(
             self.export_form,
             textvariable=self.output_path_var,
         ).grid(row=1, column=0, sticky="ew", padx=(0, 10))
-        ttk.Button(
+        self._button(
             self.export_form,
-            text="Wybierz",
+            "export.choose",
             command=self._choose_output,
         ).grid(row=1, column=1)
 
-        self.csv_export_options = ttk.LabelFrame(
+        self.csv_export_options = self._label_frame(
             self.export_form,
-            text="Ustawienia CSV",
+            "export.csv_settings",
             padding=(12, 8),
         )
         self.csv_export_options.grid(
@@ -642,21 +902,28 @@ class MainWindow(DragDropWindow):
             sticky="ew",
             pady=(14, 0),
         )
-        ttk.Label(
+        self._label(
             self.csv_export_options,
-            text="Separator",
+            "data.separator",
         ).grid(row=0, column=0, sticky="w")
-        self.export_separator_var = tk.StringVar(value="Średnik")
-        ttk.Combobox(
+        self.export_separator_var = tk.StringVar()
+        self.export_separator_combo = self._choice_combo(
             self.csv_export_options,
-            textvariable=self.export_separator_var,
-            values=tuple(SEPARATOR_LABELS),
+            self.export_separator_var,
+            "separator",
+            "semicolon",
             state="readonly",
             width=20,
-        ).grid(row=1, column=0, sticky="w", padx=(0, 18))
-        ttk.Label(
+        )
+        self.export_separator_combo.grid(
+            row=1,
+            column=0,
+            sticky="w",
+            padx=(0, 18),
+        )
+        self._label(
             self.csv_export_options,
-            text="Kodowanie",
+            "export.encoding",
         ).grid(row=0, column=1, sticky="w")
         self.export_encoding_var = tk.StringVar(value="utf-8-sig")
         ttk.Combobox(
@@ -667,9 +934,9 @@ class MainWindow(DragDropWindow):
             width=20,
         ).grid(row=1, column=1, sticky="w")
         self.include_index_var = tk.BooleanVar()
-        ttk.Checkbutton(
+        self._checkbutton(
             self.csv_export_options,
-            text="Zapisz indeks",
+            "export.include_index",
             variable=self.include_index_var,
         ).grid(
             row=2,
@@ -677,9 +944,9 @@ class MainWindow(DragDropWindow):
             sticky="w",
             pady=(14, 0),
         )
-        ttk.Label(
+        self._label(
             self.csv_export_options,
-            text="Wartość pusta",
+            "export.empty_value",
         ).grid(row=2, column=1, sticky="w", pady=(14, 0))
         self.empty_value_var = tk.StringVar()
         ttk.Entry(
@@ -688,9 +955,9 @@ class MainWindow(DragDropWindow):
             width=24,
         ).grid(row=3, column=1, sticky="w")
 
-        self.xlsx_export_options = ttk.LabelFrame(
+        self.xlsx_export_options = self._label_frame(
             self.export_form,
-            text="Ustawienia Excel",
+            "export.xlsx_settings",
             padding=(12, 8),
         )
         self.xlsx_export_options.grid(
@@ -700,11 +967,13 @@ class MainWindow(DragDropWindow):
             sticky="ew",
             pady=(14, 0),
         )
-        ttk.Label(
+        self._label(
             self.xlsx_export_options,
-            text="Nazwa arkusza",
+            "export.sheet_name",
         ).grid(row=0, column=0, sticky="w")
-        self.output_sheet_var = tk.StringVar(value="Cleaned Data")
+        self.output_sheet_var = tk.StringVar(
+            value=self._t("choice.cleaned_sheet")
+        )
         ttk.Entry(
             self.xlsx_export_options,
             textvariable=self.output_sheet_var,
@@ -716,18 +985,48 @@ class MainWindow(DragDropWindow):
         self.export_status.pack(anchor="w", pady=16)
         actions = ttk.Frame(frame)
         actions.pack(fill="x")
-        ttk.Button(actions, text="Wróć do podglądu", command=lambda: self.show_step("preview")).pack(side="left")
-        self.open_folder_button = ttk.Button(actions, text="Otwórz katalog", command=self._open_output_folder, state="disabled")
-        self.open_folder_button.pack(side="right", padx=(8, 0))
-        self.open_report_button = ttk.Button(actions, text="Wyświetl raport", command=self._open_report, state="disabled")
-        self.open_report_button.pack(side="right", padx=(8, 0))
-        self.save_button = ttk.Button(
+        self._button(
             actions,
-            text="Zapisz plik",
+            "export.back",
+            command=lambda: self.show_step("preview"),
+        ).pack(side="left")
+        self.open_folder_button = self._button(
+            actions,
+            "export.open_folder",
+            command=self._open_output_folder,
+            state="disabled",
+        )
+        self.open_folder_button.pack(side="right", padx=(8, 0))
+        self.open_report_button = self._button(
+            actions,
+            "export.open_report",
+            command=self._open_report,
+            state="disabled",
+        )
+        self.open_report_button.pack(side="right", padx=(8, 0))
+        self.save_button = self._button(
+            actions,
+            "export.save",
             style="Accent.TButton",
             command=self._save,
         )
         self.save_button.pack(side="right")
+
+    def _refresh_dynamic_text(self) -> None:
+        if DRAG_DROP_AVAILABLE:
+            self.drop_hint_var.set(self._t("file.drop_hint"))
+        else:
+            self.drop_hint_var.set(self._t("file.drop_unavailable"))
+        self._render_loaded_text()
+        self._render_analysis_text()
+        self._render_preview_text()
+        if self.last_output:
+            self.export_status.configure(
+                text=self._t(
+                    "export.saved_status",
+                    name=self.last_output.name,
+                )
+            )
 
     def _set_busy(self, message: str, busy: bool) -> None:
         self.busy_var.set(message if busy else "")
@@ -807,12 +1106,17 @@ class MainWindow(DragDropWindow):
     def _task_failed(self, error: Exception) -> None:
         self.is_busy = False
         self._set_busy("", False)
-        if isinstance(error, (FileLoadError, ExportError, ValueError)):
+        if isinstance(
+            error,
+            (LocalizedError, LocalizedValueError),
+        ):
+            message = error.render(self.language)
+        elif isinstance(error, (FileLoadError, ExportError, ValueError)):
             message = str(error)
         elif isinstance(error, MemoryError):
-            message = "Brak pamięci do wykonania operacji. Spróbuj użyć mniejszego pliku."
+            message = self._t("error.memory")
         else:
-            message = "Wystąpił nieoczekiwany błąd. Szczegóły zapisano w lokalnym dzienniku."
+            message = self._t("error.unexpected")
         messagebox.showerror("CSV Cleaner", message, parent=self)
 
     def _task_succeeded(self, value: Any, callback: Callable[[Any], None]) -> None:
@@ -825,15 +1129,19 @@ class MainWindow(DragDropWindow):
     def _choose_file(self) -> None:
         selected = filedialog.askopenfilename(
             parent=self,
-            title="Wybierz plik danych",
-            filetypes=(("Pliki danych", "*.csv *.xlsx"), ("CSV", "*.csv"), ("Excel", "*.xlsx")),
+            title=self._t("dialog.choose_data"),
+            filetypes=(
+                (self._t("dialog.data_files"), "*.csv *.xlsx"),
+                ("CSV", "*.csv"),
+                ("Excel", "*.xlsx"),
+            ),
         )
         if selected:
             self._load(selected)
 
     def _load(self, path: str, **options: Any) -> None:
         self._run_task(
-            "Wczytywanie pliku…",
+            self._t("busy.loading"),
             lambda: load_file(path, **options),
             self._on_loaded,
         )
@@ -846,8 +1154,17 @@ class MainWindow(DragDropWindow):
         if loaded.encoding:
             self.encoding_var.set(loaded.encoding)
         if loaded.separator:
-            label = next((name for name, value in SEPARATOR_LABELS.items() if value == loaded.separator), "Przecinek")
-            self.separator_var.set(label)
+            separator_code = next(
+                (
+                    code
+                    for code, value in SEPARATORS.items()
+                    if value == loaded.separator
+                ),
+                "comma",
+            )
+            self.separator_var.set(
+                self._choice_label("separator", separator_code)
+            )
         if loaded.sheets:
             self.sheet_combo.configure(values=loaded.sheets, state="readonly")
             self.sheet_var.set(loaded.sheet_name or loaded.sheets[0])
@@ -858,9 +1175,6 @@ class MainWindow(DragDropWindow):
             self.sheet_label.grid()
             self.sheet_combo.grid()
             self.reload_button.grid_configure(column=3)
-            self.data_options_hint.configure(
-                text="Wybierz arkusz i zastosuj ustawienia, aby wczytać jego dane."
-            )
         else:
             self.encoding_label.grid()
             self.encoding_combo.grid()
@@ -871,18 +1185,26 @@ class MainWindow(DragDropWindow):
             self.sheet_combo.configure(values=())
             self.sheet_var.set("")
             self.reload_button.grid_configure(column=3)
-            self.data_options_hint.configure(
-                text="Po zmianie kodowania lub separatora wybierz Zastosuj ustawienia."
-            )
-        size = human_file_size(loaded.path.stat().st_size)
-        self.file_info.configure(
-            text=(
-                f"{loaded.path.name}  •  {size}  •  "
-                f"{len(loaded.data):,} wierszy  •  {len(loaded.data.columns)} kolumn"
-            )
-        )
+        self._render_loaded_text()
         self.data_tree.show_frame(loaded.data)
         self.show_step("data")
+
+    def _render_loaded_text(self) -> None:
+        if not self.loaded:
+            return
+        loaded = self.loaded
+        hint_key = "data.xlsx_hint" if loaded.sheets else "data.csv_hint"
+        self.data_options_hint.configure(text=self._t(hint_key))
+        size = human_file_size(loaded.path.stat().st_size)
+        self.file_info.configure(
+            text=self._t(
+                "data.info",
+                name=loaded.path.name,
+                size=size,
+                rows=len(loaded.data),
+                columns=len(loaded.data.columns),
+            )
+        )
 
     def _reload_with_options(self) -> None:
         if not self.loaded:
@@ -891,7 +1213,9 @@ class MainWindow(DragDropWindow):
             self._load(
                 str(self.loaded.path),
                 encoding=self.encoding_var.get(),
-                separator=SEPARATOR_LABELS[self.separator_var.get()],
+                separator=SEPARATORS[
+                    self._choice_code("separator", self.separator_var.get())
+                ],
             )
         else:
             self._load(str(self.loaded.path), sheet_name=self.sheet_var.get())
@@ -899,13 +1223,29 @@ class MainWindow(DragDropWindow):
     def _analyze(self) -> None:
         if not self.loaded:
             return
-        self._run_task("Analizowanie danych…", lambda: analyze_data(self.loaded.data), self._on_analyzed)
+        self._run_task(
+            self._t("busy.analyzing"),
+            lambda: analyze_data(self.loaded.data),
+            self._on_analyzed,
+        )
 
     def _on_analyzed(self, analysis: AnalysisResult) -> None:
         self.analysis = analysis
+        self._render_analysis_text(initialize=True)
+        self.show_step("analysis")
+
+    def _render_analysis_text(self, *, initialize: bool = False) -> None:
+        if not self.analysis:
+            return
+        analysis = self.analysis
         total = sum(item.count for item in analysis.issues)
         self.analysis_summary.configure(
-            text=f"Przeanalizowano {analysis.rows:,} wierszy i {analysis.columns} kolumn. Łączna liczba wskazań: {total:,}."
+            text=self._t(
+                "analysis.summary",
+                rows=analysis.rows,
+                columns=analysis.columns,
+                total=total,
+            )
         )
         variables = {
             "empty_rows": self.remove_empty_rows_var,
@@ -916,25 +1256,54 @@ class MainWindow(DragDropWindow):
             "invalid_emails": self.email_var,
         }
         for issue in analysis.issues:
-            self.issue_labels[issue.key].configure(
-                text=f"{issue.count:,}  •  {', '.join(issue.columns[:5]) or 'cały zbiór'}"
+            columns = (
+                ", ".join(issue.columns[:5])
+                or self._t("analysis.whole_dataset")
             )
-            variables[issue.key].set(issue.count > 0)
-        self.date_columns_var.set(", ".join(analysis.date_columns))
-        self.dates_var.set(bool(analysis.date_columns))
-        self.email_columns_var.set(", ".join(analysis.email_columns))
-        self.missing_columns_var.set(", ".join(analysis.missing_by_column))
-        issue_names = [issue.name for issue in analysis.issues if issue.count > 0]
+            self.issue_labels[issue.key].configure(
+                text=self._t(
+                    "analysis.issue_count",
+                    count=issue.count,
+                    columns=columns,
+                )
+            )
+            if initialize:
+                variables[issue.key].set(issue.count > 0)
+        if initialize:
+            self.date_columns_var.set(", ".join(analysis.date_columns))
+            self.dates_var.set(bool(analysis.date_columns))
+            self.email_columns_var.set(", ".join(analysis.email_columns))
+            self.missing_columns_var.set(", ".join(analysis.missing_by_column))
+        selected_key = self._selected_issue_key()
+        visible_issues = [issue for issue in analysis.issues if issue.count > 0]
+        issue_names = [self._t(issue.name) for issue in visible_issues]
         self.issue_example_combo.configure(values=issue_names)
-        self.issue_example_var.set(issue_names[0] if issue_names else "")
+        if selected_key and any(
+            issue.key == selected_key for issue in visible_issues
+        ):
+            selected_issue = next(
+                issue for issue in visible_issues if issue.key == selected_key
+            )
+            self.issue_example_var.set(self._t(selected_issue.name))
+        else:
+            self.issue_example_var.set(issue_names[0] if issue_names else "")
         self._show_issue_examples()
-        self.show_step("analysis")
+
+    def _selected_issue_key(self) -> str | None:
+        if not self.analysis:
+            return None
+        selected = self.issue_example_var.get()
+        for issue in self.analysis.issues:
+            for language in ("en", "pl"):
+                if translate(language, issue.name) == selected:
+                    return issue.key
+        return None
 
     def _show_issue_examples(self, _event: tk.Event[Any] | None = None) -> None:
         if not self.analysis:
             return
-        selected = self.issue_example_var.get()
-        issue = next((item for item in self.analysis.issues if item.name == selected), None)
+        selected_key = self._selected_issue_key()
+        issue = self.analysis.issue(selected_key) if selected_key else None
         lines: list[str] = []
         if issue:
             if issue.examples:
@@ -943,11 +1312,18 @@ class MainWindow(DragDropWindow):
                     values = ", ".join(
                         f"{key}={value}" for key, value in example.items() if key != "row"
                     )
-                    lines.append(f"Wiersz {row}: {values}")
+                    lines.append(
+                        self._t("analysis.row", row=row, values=values)
+                    )
             elif issue.columns:
-                lines.append("Kolumny: " + ", ".join(issue.columns))
+                lines.append(
+                    self._t(
+                        "analysis.columns",
+                        columns=", ".join(issue.columns),
+                    )
+                )
         if not lines:
-            lines.append("Brak przykładowych rekordów dla tego problemu.")
+            lines.append(self._t("analysis.no_examples"))
         self.issue_examples_text.configure(state="normal")
         self.issue_examples_text.delete("1.0", "end")
         self.issue_examples_text.insert("1.0", "\n".join(lines))
@@ -958,28 +1334,18 @@ class MainWindow(DragDropWindow):
         return [item.strip() for item in value.split(",") if item.strip()]
 
     def _build_config(self) -> CleaningConfig:
-        duplicate_keep = {
-            "Zachowaj pierwszy": "first",
-            "Zachowaj ostatni": "last",
-            "Usuń wszystkie powtórzenia": "remove_all",
-            "Tylko oznacz": "mark",
-        }[self.duplicate_keep_var.get()]
-        case_mode = {
-            "Bez zmian": "none",
-            "małe litery": "lower",
-            "WIELKIE LITERY": "upper",
-            "Pierwsza litera": "capitalize",
-            "Każde Słowo": "title",
-        }[self.text_case_var.get()]
-        missing_strategy = {
-            "Pozostaw bez zmian": "keep",
-            "Wybrany tekst": "text",
-            "Zero": "zero",
-            "Średnia": "mean",
-            "Mediana": "median",
-            "Najczęstsza wartość": "mode",
-            "Usuń wiersze": "drop",
-        }[self.missing_strategy_var.get()]
+        duplicate_keep = self._choice_code(
+            "duplicate_keep",
+            self.duplicate_keep_var.get(),
+        )
+        case_mode = self._choice_code(
+            "text_case",
+            self.text_case_var.get(),
+        )
+        missing_strategy = self._choice_code(
+            "missing_strategy",
+            self.missing_strategy_var.get(),
+        )
         return CleaningConfig(
             remove_empty_rows=self.remove_empty_rows_var.get(),
             remove_empty_columns=self.remove_empty_columns_var.get(),
@@ -991,14 +1357,20 @@ class MainWindow(DragDropWindow):
                 keep=duplicate_keep,
             ),
             standardize_column_names=self.columns_var.get(),
-            column_case="lower" if self.column_case_var.get() == "małe litery" else "upper",
+            column_case=self._choice_code(
+                "column_case",
+                self.column_case_var.get(),
+            ),
             remove_polish_characters=self.polish_var.get(),
             text_case_columns=self._columns_from(self.text_columns_var.get()),
             text_case_mode=case_mode,
             date_columns=self._columns_from(self.date_columns_var.get()) if self.dates_var.get() else [],
             date_output_format=self.date_format_var.get(),
             email_columns=self._columns_from(self.email_columns_var.get()) if self.email_var.get() else [],
-            invalid_email_action="empty" if self.email_action_var.get() == "Zastąp pustą wartością" else "keep",
+            invalid_email_action=self._choice_code(
+                "email_action",
+                self.email_action_var.get(),
+            ),
             missing_strategy=missing_strategy if self.missing_var.get() else "keep",
             missing_replacement=self.missing_replacement_var.get(),
             missing_columns=self._columns_from(self.missing_columns_var.get()),
@@ -1009,7 +1381,7 @@ class MainWindow(DragDropWindow):
             return
         config = self._build_config()
         self._run_task(
-            "Przygotowywanie podglądu…",
+            self._t("busy.preview"),
             lambda: clean_data(self.loaded.data, config),
             self._on_preview_ready,
         )
@@ -1017,22 +1389,37 @@ class MainWindow(DragDropWindow):
     def _on_preview_ready(self, result: OperationResult) -> None:
         self.cleaning_result = result
         self.unsaved_changes = True
+        self._render_preview_text()
+        self.show_step("preview")
+
+    def _render_preview_text(self) -> None:
+        if not self.cleaning_result:
+            return
+        result = self.cleaning_result
         shown = len(result.changes)
         self.preview_summary.configure(
-            text=(
-                f"Zmiany: {result.total_changes:,}, pokazano: {shown:,}. "
-                f"Usunięte wiersze: {result.removed_rows:,}, kolumny: {result.removed_columns:,}."
+            text=self._t(
+                "preview.summary",
+                changes=result.total_changes,
+                shown=shown,
+                rows=result.removed_rows,
+                columns=result.removed_columns,
             )
         )
-        self.change_tree.show_changes(result.changes)
+        self.change_tree.show_changes(result.changes, self._t)
         self.warning_text.configure(state="normal")
         self.warning_text.delete("1.0", "end")
+        warnings = [
+            warning.render(self.language)
+            if isinstance(warning, LocalizedMessage)
+            else str(warning)
+            for warning in result.warnings[:20]
+        ]
         self.warning_text.insert(
             "1.0",
-            "\n".join(result.warnings[:20]) if result.warnings else "Brak ostrzeżeń.",
+            "\n".join(warnings) if warnings else self._t("preview.no_warnings"),
         )
         self.warning_text.configure(state="disabled")
-        self.show_step("preview")
 
     def _reset_changes(self) -> None:
         self.cleaning_result = None
@@ -1064,7 +1451,7 @@ class MainWindow(DragDropWindow):
         initial = Path(self.output_path_var.get()) if self.output_path_var.get() else Path.cwd() / "data_cleaned.csv"
         selected = filedialog.asksaveasfilename(
             parent=self,
-            title="Zapisz poprawioną kopię",
+            title=self._t("dialog.save_copy"),
             initialdir=initial.parent,
             initialfile=initial.name,
             defaultextension=initial.suffix or ".csv",
@@ -1078,14 +1465,18 @@ class MainWindow(DragDropWindow):
             return
         value = self.output_path_var.get().strip()
         if not value:
-            messagebox.showwarning("CSV Cleaner", "Wybierz plik wynikowy.", parent=self)
+            messagebox.showwarning(
+                "CSV Cleaner",
+                self._t("dialog.choose_output"),
+                parent=self,
+            )
             return
         target = Path(value).expanduser().resolve()
         overwrite = False
         if target == self.loaded.path:
             confirmed = messagebox.askyesno(
-                "Potwierdź nadpisanie",
-                "Wybrano plik źródłowy. Czy na pewno chcesz go nadpisać?",
+                self._t("dialog.overwrite_source_title"),
+                self._t("dialog.overwrite_source"),
                 parent=self,
                 default=messagebox.NO,
             )
@@ -1094,8 +1485,8 @@ class MainWindow(DragDropWindow):
             overwrite = True
         elif target.exists():
             overwrite = messagebox.askyesno(
-                "Plik już istnieje",
-                "Czy zastąpić istniejący plik?",
+                self._t("dialog.exists_title"),
+                self._t("dialog.exists"),
                 parent=self,
                 default=messagebox.NO,
             )
@@ -1106,11 +1497,17 @@ class MainWindow(DragDropWindow):
         source_path = self.loaded.path
         rows_before = len(self.loaded.data)
         columns_before = len(self.loaded.data.columns)
-        export_separator = SEPARATOR_LABELS[self.export_separator_var.get()]
+        export_separator = SEPARATORS[
+            self._choice_code(
+                "separator",
+                self.export_separator_var.get(),
+            )
+        ]
         export_encoding = self.export_encoding_var.get()
         include_index = self.include_index_var.get()
         empty_value = self.empty_value_var.get()
         output_sheet = self.output_sheet_var.get()
+        report_language = self.language
 
         def save_all() -> tuple[Path, tuple[Path, Path]]:
             output = export_data(
@@ -1129,20 +1526,32 @@ class MainWindow(DragDropWindow):
                 rows_before,
                 columns_before,
                 result_to_save,
+                language=report_language,
             )
             return output, save_reports(report, output)
 
-        self._run_task("Zapisywanie wyniku i raportów…", save_all, self._on_saved)
+        self._run_task(
+            self._t("busy.saving"),
+            save_all,
+            self._on_saved,
+        )
 
     def _on_saved(self, value: tuple[Path, tuple[Path, Path]]) -> None:
         self.last_output, self.last_reports = value
         self.unsaved_changes = False
         self.export_status.configure(
-            text=f"Gotowe. Zapisano {self.last_output.name} oraz dwa raporty."
+            text=self._t(
+                "export.saved_status",
+                name=self.last_output.name,
+            )
         )
         self.open_folder_button.configure(state="normal")
         self.open_report_button.configure(state="normal")
-        messagebox.showinfo("CSV Cleaner", "Plik i raporty zostały zapisane.", parent=self)
+        messagebox.showinfo(
+            "CSV Cleaner",
+            self._t("dialog.saved"),
+            parent=self,
+        )
 
     def _open_path(self, path: Path) -> None:
         try:
@@ -1153,7 +1562,11 @@ class MainWindow(DragDropWindow):
             else:
                 subprocess.Popen(["xdg-open", str(path)])
         except OSError:
-            messagebox.showerror("CSV Cleaner", f"Nie można otworzyć: {path}", parent=self)
+            messagebox.showerror(
+                "CSV Cleaner",
+                self._t("dialog.open_failed", path=path),
+                parent=self,
+            )
 
     def _open_output_folder(self) -> None:
         if self.last_output:
@@ -1166,8 +1579,8 @@ class MainWindow(DragDropWindow):
     def _on_close(self) -> None:
         if self.unsaved_changes:
             confirmed = messagebox.askyesno(
-                "Niezapisane zmiany",
-                "Masz niezapisany podgląd zmian. Czy zamknąć aplikację?",
+                self._t("dialog.unsaved_title"),
+                self._t("dialog.unsaved"),
                 parent=self,
                 default=messagebox.NO,
             )

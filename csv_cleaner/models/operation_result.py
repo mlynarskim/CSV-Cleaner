@@ -5,6 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from csv_cleaner.i18n import LocalizedMessage
+
 
 @dataclass(slots=True)
 class ChangeRecord:
@@ -13,6 +15,9 @@ class ChangeRecord:
     before: str
     after: str
     operation: str
+    row_key: str | None = None
+    before_key: str | None = None
+    after_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -21,6 +26,6 @@ class OperationResult:
     changes: list[ChangeRecord] = field(default_factory=list)
     total_changes: int = 0
     operations: dict[str, int] = field(default_factory=dict)
-    warnings: list[str] = field(default_factory=list)
+    warnings: list[LocalizedMessage] = field(default_factory=list)
     removed_rows: int = 0
     removed_columns: int = 0

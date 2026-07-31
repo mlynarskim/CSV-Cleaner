@@ -9,7 +9,7 @@ APP_PATH="$PROJECT_DIR/dist/CSV Cleaner.app"
 ARCHIVE_PATH="$PROJECT_DIR/dist/CSV-Cleaner-macOS-$ARCHITECTURE.zip"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "Ten skrypt działa wyłącznie na macOS."
+    echo "This script runs only on macOS."
     exit 1
 fi
 
@@ -51,14 +51,14 @@ for candidate in "${PYTHON_CANDIDATES[@]}"; do
 done
 
 if [[ -z "$PYTHON_BIN" ]]; then
-    echo "Nie znaleziono Python 3.11 lub nowszego z Tk 8.6.13 lub nowszym."
-    echo "Zainstaluj aktualny Python z obsługą Tkinter i spróbuj ponownie."
+    echo "Python 3.11 or newer with Tk 8.6.13 or newer was not found."
+    echo "Install a current Python version with Tkinter support and try again."
     exit 1
 fi
 
 cd "$PROJECT_DIR"
 
-echo "Wybrane środowisko:"
+echo "Selected environment:"
 "$PYTHON_BIN" -c '
 import platform
 import sys
@@ -67,31 +67,31 @@ import tkinter
 tk_patch = tkinter.Tcl().eval("info patchlevel")
 print(f"Python {platform.python_version()}")
 print(f"Tk {tk_patch}")
-print(f"Architektura {platform.machine()}")
+print(f"Architecture {platform.machine()}")
 '
 
-echo "Tworzenie środowiska budowania..."
+echo "Creating the build environment..."
 if [[ -d "$BUILD_ENV" ]]; then
     rm -rf "$BUILD_ENV"
 fi
 "$PYTHON_BIN" -m venv "$BUILD_ENV"
 
-echo "Instalowanie zależności..."
+echo "Installing dependencies..."
 "$BUILD_ENV/bin/python" -m pip install --upgrade pip
 "$BUILD_ENV/bin/python" -m pip install . pyinstaller
 
-echo "Budowanie aplikacji..."
+echo "Building the application..."
 "$BUILD_ENV/bin/pyinstaller" \
     --clean \
     --noconfirm \
     "$PROJECT_DIR/csv_cleaner_macos.spec"
 
 if [[ ! -d "$APP_PATH" ]]; then
-    echo "Budowanie nie utworzyło oczekiwanego pakietu aplikacji."
+    echo "The build did not create the expected application package."
     exit 1
 fi
 
-echo "Tworzenie archiwum..."
+echo "Creating the archive..."
 rm -f "$ARCHIVE_PATH"
 ditto \
     -c \
@@ -102,6 +102,6 @@ ditto \
     "$ARCHIVE_PATH"
 
 echo
-echo "Gotowe."
-echo "Aplikacja: $APP_PATH"
-echo "Archiwum do publikacji: $ARCHIVE_PATH"
+echo "Done."
+echo "Application: $APP_PATH"
+echo "Release archive: $ARCHIVE_PATH"

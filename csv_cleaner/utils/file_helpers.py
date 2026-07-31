@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from csv_cleaner.i18n import LocalizedValueError
+
 
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx"}
 MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -10,15 +12,15 @@ MAX_FILE_SIZE = 100 * 1024 * 1024
 def validate_input_path(path: str | Path) -> Path:
     candidate = Path(path).expanduser().resolve()
     if not candidate.exists():
-        raise ValueError("Wybrany plik nie istnieje.")
+        raise LocalizedValueError("error.path_missing")
     if not candidate.is_file():
-        raise ValueError("Wybrana ścieżka nie prowadzi do pliku.")
+        raise LocalizedValueError("error.path_not_file")
     if candidate.suffix.lower() not in SUPPORTED_EXTENSIONS:
-        raise ValueError("Obsługiwane są wyłącznie pliki CSV oraz XLSX.")
+        raise LocalizedValueError("error.extension")
     if candidate.stat().st_size == 0:
-        raise ValueError("Wybrany plik jest pusty.")
+        raise LocalizedValueError("error.empty_file")
     if candidate.stat().st_size > MAX_FILE_SIZE:
-        raise ValueError("Plik przekracza limit 100 MB.")
+        raise LocalizedValueError("error.file_too_large")
     return candidate
 
 

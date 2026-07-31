@@ -6,11 +6,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from csv_cleaner.i18n import LocalizedError, LocalizedValueError
 from csv_cleaner.utils.encoding import detect_encoding
 from csv_cleaner.utils.file_helpers import validate_input_path
 
 
-class FileLoadError(Exception):
+class FileLoadError(LocalizedError):
     """A safe, user facing file loading error."""
 
 
@@ -34,20 +35,19 @@ def detect_separator(path: Path, encoding: str) -> str:
         counts = {item: sample.count(item) for item in ",;\t|"} if "sample" in locals() else {}
         if counts and max(counts.values()) > 0:
             return max(counts, key=counts.get)  # type: ignore[arg-type]
-        raise FileLoadError(
-            "Nie udało się wykryć separatora. Wybierz separator ręcznie."
-        )
+        raise FileLoadError("error.separator")
 
 
 def list_excel_sheets(path: str | Path) -> list[str]:
-    candidate = validate_input_path(path)
+    try:
+        candidate = validate_input_path(path)
+    except LocalizedValueError as exc:
+        raise FileLoadError(exc.key, **exc.values) from exc
     try:
         with pd.ExcelFile(candidate, engine="openpyxl") as workbook:
             return workbook.sheet_names
     except Exception as exc:
-        raise FileLoadError(
-            "Nie udało się odczytać skoroszytu. Plik może być uszkodzony lub zablokowany."
-        ) from exc
+        raise FileLoadError("error.workbook") from exc
 
 
 def load_file(
@@ -70,7 +70,7 @@ def load_file(
                 skip_blank_lines=False,
             )
             if len(frame.columns) == 0:
-                raise FileLoadError("Plik nie zawiera nagłówków.")
+                raise FileLoadError("error.no_headers")
             return LoadedFile(
                 path=candidate,
                 data=frame,
@@ -90,18 +90,14 @@ def load_file(
     except FileLoadError:
         raise
     except UnicodeError as exc:
-        raise FileLoadError(
-            "Nie można odczytać kodowania pliku. Wybierz inne kodowanie."
-        ) from exc
+        raise FileLoadError("error.encoding") from exc
     except PermissionError as exc:
-        raise FileLoadError(
-            "Brak dostępu do pliku. Zamknij program, który może go używać, i spróbuj ponownie."
-        ) from exc
+        raise FileLoadError("error.permission_read") from exc
     except pd.errors.EmptyDataError as exc:
-        raise FileLoadError("Plik nie zawiera danych ani nagłówków.") from exc
+        raise FileLoadError("error.no_data") from exc
     except pd.errors.ParserError as exc:
-        raise FileLoadError(
-            "Nie można rozpoznać struktury danych. Sprawdź wybrany separator."
-        ) from exc
+        raise FileLoadError("error.parser") from exc
+    except LocalizedValueError as exc:
+        raise FileLoadError(exc.key, **exc.values) from exc
     except (OSError, ValueError) as exc:
-        raise FileLoadError(str(exc)) from exc
+        raise FileLoadError("error.file_read") from exc

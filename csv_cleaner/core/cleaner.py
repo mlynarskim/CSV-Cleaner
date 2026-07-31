@@ -9,6 +9,7 @@ import pandas as pd
 
 from csv_cleaner.core.analyzer import blank_mask
 from csv_cleaner.core.validator import invalid_email_mask, parse_date_value
+from csv_cleaner.i18n import LocalizedMessage
 from csv_cleaner.models.cleaning_config import CleaningConfig
 from csv_cleaner.models.operation_result import ChangeRecord, OperationResult
 
@@ -27,11 +28,24 @@ def _record(
     before: Any,
     after: Any,
     operation: str,
+    *,
+    row_key: str | None = None,
+    before_key: str | None = None,
+    after_key: str | None = None,
 ) -> None:
     result.total_changes += 1
     if len(result.changes) < MAX_PREVIEW_CHANGES:
         result.changes.append(
-            ChangeRecord(row=row, column=column, before=_display(before), after=_display(after), operation=operation)
+            ChangeRecord(
+                row=row,
+                column=column,
+                before=_display(before),
+                after=_display(after),
+                operation=operation,
+                row_key=row_key,
+                before_key=before_key,
+                after_key=after_key,
+            )
         )
 
 
@@ -98,7 +112,16 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
         mask = blank_mask(frame).all(axis=1)
         count = int(mask.sum())
         for index in frame.index[mask]:
-            _record(result, index, "", "pusty wiersz", "usunięto", "Usunięcie pustego wiersza")
+            _record(
+                result,
+                index,
+                "",
+                "",
+                "",
+                "operation.empty_row_removed",
+                before_key="value.empty_row",
+                after_key="value.removed",
+            )
         frame = frame.loc[~mask].copy()
         result.removed_rows += count
         result.operations["empty_rows_removed"] = count
@@ -107,7 +130,16 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
         mask = blank_mask(frame).all(axis=0)
         columns = [str(item) for item in frame.columns[mask]]
         for column in columns:
-            _record(result, "", column, "pusta kolumna", "usunięto", "Usunięcie pustej kolumny")
+            _record(
+                result,
+                "",
+                column,
+                "",
+                "",
+                "operation.empty_column_removed",
+                before_key="value.empty_column",
+                after_key="value.removed",
+            )
         frame = frame.drop(columns=columns)
         result.removed_columns += len(columns)
         result.operations["empty_columns_removed"] = len(columns)
@@ -119,7 +151,7 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
             updated = value.strip()
             return re.sub(r"\s+", " ", updated) if config.collapse_internal_spaces else updated
 
-        count = _replace_text(frame, text_columns, trim, result, "Czyszczenie odstępów")
+        count = _replace_text(frame, text_columns, trim, result, "operation.trimmed")
         result.operations["trimmed_values"] = count
 
     if config.duplicates.enabled:
@@ -133,7 +165,16 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
             mask = frame.duplicated(subset=subset, keep=keep)
             count = int(mask.sum())
             for index in frame.index[mask]:
-                _record(result, index, "", "duplikat", "usunięto", "Usunięcie duplikatu")
+                _record(
+                    result,
+                    index,
+                    "",
+                    "",
+                    "",
+                    "operation.duplicate_removed",
+                    before_key="value.duplicate",
+                    after_key="value.removed",
+                )
             frame = frame.loc[~mask].copy()
             result.removed_rows += count
             result.operations["duplicates_removed"] = count
@@ -151,7 +192,7 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
             available_case_columns,
             case_transforms[config.text_case_mode],
             result,
-            "Standaryzacja wielkości liter",
+            "operation.case_changed",
         )
         result.operations["case_values_changed"] = count
 
@@ -164,12 +205,17 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
                 continue
             parsed = parse_date_value(value)
             if parsed is None:
-                result.warnings.append(f"Nie przekształcono daty w kolumnie {column}, wiersz {index}.")
+                result.warnings.append(
+                    LocalizedMessage(
+                        "warning.date",
+                        {"column": column, "row": index},
+                    )
+                )
                 continue
             updated = parsed.strftime(config.date_output_format)
             if updated != str(value):
                 frame.at[index, column] = updated
-                _record(result, index, column, value, updated, "Standaryzacja daty")
+                _record(result, index, column, value, updated, "operation.date_changed")
                 converted += 1
     if config.date_columns:
         result.operations["dates_converted"] = converted
@@ -184,7 +230,14 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
             for index in frame.index[mask]:
                 value = frame.at[index, column]
                 frame.at[index, column] = pd.NA
-                _record(result, index, column, value, "", "Usunięcie nieprawidłowego adresu")
+                _record(
+                    result,
+                    index,
+                    column,
+                    value,
+                    "",
+                    "operation.invalid_email_removed",
+                )
     if config.email_columns:
         result.operations["invalid_emails_found"] = invalid_found
 
@@ -195,7 +248,15 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
             continue
         if config.missing_strategy == "drop":
             for index in frame.index[mask]:
-                _record(result, index, column, "", "usunięto wiersz", "Usunięcie wiersza z brakiem")
+                _record(
+                    result,
+                    index,
+                    column,
+                    "",
+                    "",
+                    "operation.missing_row_removed",
+                    after_key="value.row_removed",
+                )
             count = int(mask.sum())
             frame = frame.loc[~mask].copy()
             result.removed_rows += count
@@ -212,15 +273,26 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
         elif config.missing_strategy == "mode":
             modes = frame.loc[~mask, column].mode()
             if modes.empty:
-                result.warnings.append(f"Nie można wyznaczyć dominanty dla kolumny {column}.")
+                result.warnings.append(
+                    LocalizedMessage("warning.mode", {"column": column})
+                )
                 continue
             replacement = modes.iloc[0]
         if pd.isna(replacement):
-            result.warnings.append(f"Nie można wyznaczyć wartości dla kolumny {column}.")
+            result.warnings.append(
+                LocalizedMessage("warning.value", {"column": column})
+            )
             continue
         for index in frame.index[mask]:
             frame.at[index, column] = replacement
-            _record(result, index, column, "", replacement, "Uzupełnienie braku")
+            _record(
+                result,
+                index,
+                column,
+                "",
+                replacement,
+                "operation.missing_filled",
+            )
         result.operations["missing_values_filled"] = result.operations.get("missing_values_filled", 0) + int(mask.sum())
 
     if config.standardize_column_names:
@@ -228,7 +300,15 @@ def clean_data(source: pd.DataFrame, config: CleaningConfig) -> OperationResult:
         new_names = _unique_names([_standardize_name(item, config) for item in old_names])
         for old, new in zip(old_names, new_names):
             if old != new:
-                _record(result, "nagłówek", old, old, new, "Standaryzacja nazwy kolumny")
+                _record(
+                    result,
+                    "",
+                    old,
+                    old,
+                    new,
+                    "operation.column_standardized",
+                    row_key="value.header",
+                )
         frame.columns = new_names
         result.operations["column_names_changed"] = sum(a != b for a, b in zip(old_names, new_names))
 

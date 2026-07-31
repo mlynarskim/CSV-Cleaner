@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from csv_cleaner.i18n import DEFAULT_LANGUAGE, LocalizedMessage, translate
 from csv_cleaner.models.operation_result import OperationResult
 
 
@@ -14,6 +15,8 @@ def build_report(
     rows_before: int,
     columns_before: int,
     result: OperationResult,
+    *,
+    language: str = DEFAULT_LANGUAGE,
 ) -> dict[str, Any]:
     return {
         "source_file": str(Path(source_file).name),
@@ -27,8 +30,14 @@ def build_report(
         "changed_values": result.total_changes,
         "removed_rows": result.removed_rows,
         "removed_columns": result.removed_columns,
-        "warnings": result.warnings,
+        "warnings": [
+            warning.render(language)
+            if isinstance(warning, LocalizedMessage)
+            else str(warning)
+            for warning in result.warnings
+        ],
         "errors": [],
+        "language": language,
     }
 
 
@@ -41,26 +50,44 @@ def save_reports(report: dict[str, Any], output_file: str | Path) -> tuple[Path,
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    language = str(report.get("language", DEFAULT_LANGUAGE))
     lines = [
-        "CSV Cleaner: raport operacji",
+        translate(language, "report.title"),
         "",
-        f"Plik źródłowy: {report['source_file']}",
-        f"Plik wynikowy: {report['output_file']}",
-        f"Data operacji: {report['processed_at']}",
-        f"Wiersze: {report['rows_before']} → {report['rows_after']}",
-        f"Kolumny: {report['columns_before']} → {report['columns_after']}",
-        f"Zarejestrowane zmiany: {report['changed_values']}",
-        f"Usunięte wiersze: {report['removed_rows']}",
-        f"Usunięte kolumny: {report['removed_columns']}",
+        translate(language, "report.source", value=report["source_file"]),
+        translate(language, "report.output", value=report["output_file"]),
+        translate(language, "report.date", value=report["processed_at"]),
+        translate(
+            language,
+            "report.rows",
+            before=report["rows_before"],
+            after=report["rows_after"],
+        ),
+        translate(
+            language,
+            "report.columns",
+            before=report["columns_before"],
+            after=report["columns_after"],
+        ),
+        translate(language, "report.changes", value=report["changed_values"]),
+        translate(language, "report.removed_rows", value=report["removed_rows"]),
+        translate(
+            language,
+            "report.removed_columns",
+            value=report["removed_columns"],
+        ),
         "",
-        "Wykonane operacje:",
+        translate(language, "report.operations"),
     ]
     operations = report["operations"]
-    lines.extend(f"  {name}: {count}" for name, count in operations.items())
-    lines.extend(["", "Ostrzeżenia:"])
+    lines.extend(
+        f"  {translate(language, f'summary.{name}')}: {count}"
+        for name, count in operations.items()
+    )
+    lines.extend(["", translate(language, "report.warnings")])
     warnings = report["warnings"]
     lines.extend(f"  {warning}" for warning in warnings)
     if not warnings:
-        lines.append("  Brak")
+        lines.append(f"  {translate(language, 'report.none')}")
     text_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return text_path, json_path

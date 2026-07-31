@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csv-cleaner"
-version = "1.1.1"
+version = "1.2.0"
 description = "Local desktop application for cleaning CSV and XLSX files"
 requires-python = ">=3.11"
 dependencies = [

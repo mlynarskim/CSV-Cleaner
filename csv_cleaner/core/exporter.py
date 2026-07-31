@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from csv_cleaner.i18n import LocalizedError
 
-class ExportError(Exception):
+
+class ExportError(LocalizedError):
     """A safe, user facing export error."""
 
 
@@ -24,12 +26,12 @@ def export_data(
 ) -> Path:
     target = Path(output_path).expanduser().resolve()
     if target.suffix.lower() not in {".csv", ".xlsx"}:
-        raise ExportError("Format wyniku musi być CSV albo XLSX.")
+        raise ExportError("error.output_format")
     if target.exists() and not overwrite:
-        raise ExportError("Plik wynikowy już istnieje.")
+        raise ExportError("error.output_exists")
     target.parent.mkdir(parents=True, exist_ok=True)
     if not os.access(target.parent, os.W_OK):
-        raise ExportError("Brak uprawnień do zapisu w wybranym katalogu.")
+        raise ExportError("error.permission_write")
 
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{target.stem}_",
@@ -57,11 +59,9 @@ def export_data(
         os.replace(temporary, target)
         return target
     except PermissionError as exc:
-        raise ExportError(
-            "Nie można zapisać pliku. Zamknij go w innym programie i spróbuj ponownie."
-        ) from exc
+        raise ExportError("error.save_locked") from exc
     except OSError as exc:
-        raise ExportError("Wystąpił błąd podczas zapisu pliku.") from exc
+        raise ExportError("error.save") from exc
     finally:
         if temporary.exists():
             temporary.unlink(missing_ok=True)
