@@ -44,6 +44,18 @@ If macOS still blocks the application, open **System Settings**, go to **Privacy
 
 Packages published automatically by GitHub are not signed with an Apple Developer certificate. macOS may therefore display a warning on the first launch.
 
+## Downloading the ready to use Windows application
+
+1. Open the repository page on GitHub.
+2. Go to the **Releases** section.
+3. Download `CSV-Cleaner-Windows-x64.zip`.
+4. Extract the archive to a folder of your choice.
+5. Run `CSV Cleaner.exe`.
+
+The Windows package is not signed with a commercial code signing certificate. Microsoft Defender SmartScreen may display a warning on the first launch. Choose **More info**, verify that the file came from this repository, and then choose **Run anyway**.
+
+The published Windows package targets 64 bit versions of Windows 10 and Windows 11.
+
 ## Installing and running from source
 
 ```bash
@@ -89,6 +101,23 @@ dist/CSV-Cleaner-macOS-arm64.zip
 
 The archive name depends on the computer processor and may also end with `x86_64.zip`.
 
+## Building the Windows application after downloading the source
+
+The build requires 64 bit Windows, Python 3.11 or newer, and Tkinter. Download and extract the source, open PowerShell in the project directory, and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+```
+
+The script creates an isolated build environment, runs all tests, builds a standalone executable, and prepares these files:
+
+```text
+dist/CSV Cleaner.exe
+dist/CSV-Cleaner-Windows-x64.zip
+```
+
+The executable contains Python and all required libraries. Users do not need to install Python to run it.
+
 ## Tests
 
 ```bash
@@ -109,12 +138,13 @@ python scripts/test_ui_macos.py
 
 ## Automatic GitHub releases
 
-The `.github/workflows/build.yml` workflow follows the same release approach as Photo Tools. Every version tag beginning with `v` runs the tests and builds two packages:
+The `.github/workflows/build.yml` workflow follows the same release approach as Photo Tools. Every version tag beginning with `v` runs the tests and builds three packages:
 
-* Apple Silicon
-* Intel
+* macOS for Apple Silicon
+* macOS for Intel
+* Windows for 64 bit Intel and AMD processors
 
-After the build completes, GitHub creates a release and attaches both archives.
+After all builds complete, GitHub creates a release and attaches all three archives.
 
 Example release:
 
@@ -127,13 +157,21 @@ The workflow can also be started manually from the **Actions** tab. A manual run
 
 ## Manual PyInstaller build
 
-After installing the dependencies, run:
+After installing the dependencies on macOS, run:
 
 ```bash
 pyinstaller csv_cleaner_macos.spec
 ```
 
 The completed `CSV Cleaner.app` package will be available in the `dist` directory.
+
+On Windows, run:
+
+```powershell
+python -m PyInstaller --clean --noconfirm csv_cleaner_windows.spec
+```
+
+The completed `CSV Cleaner.exe` file will be available in the `dist` directory.
 
 ## Data safety
 

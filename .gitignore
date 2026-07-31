@@ -8,6 +8,7 @@ htmlcov/
 .ruff_cache/
 .venv/
 .venv-build/
+.venv-build-windows/
 build/
 dist/
 sample_data/*_cleaned.csv
@@ -18,3 +19,4 @@ sample_data/*_cleaned_report.txt
 .DS_Store
 .idea/
 .vscode/
+StartupProfileData-*
